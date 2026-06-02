@@ -33,6 +33,16 @@
   <div class="tiles" id="tiles"></div>
 
   <div class="sec">
+    <h2>In-game credits &amp; ledger</h2>
+    <div id="creditKeyBar" style="margin-bottom:12px"></div>
+    <div class="tiles" id="creditTiles"></div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px">
+      <div style="flex:1;min-width:260px"><div class="k" style="color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Top balances</div><table id="creditTop"><tbody><tr><td class="foot">—</td></tr></tbody></table></div>
+      <div style="flex:2;min-width:320px"><div class="k" style="color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Recent credit movements (ledger)</div><div id="creditLedger" class="foot">—</div></div>
+    </div>
+  </div>
+
+  <div class="sec">
     <h2>Recent matches (server-measured)</h2>
     <table id="matches"><thead><tr><th>Match</th><th>Player A</th><th>time</th><th>Player B</th><th>time</th><th>Winner</th></tr></thead><tbody><tr><td colspan="6" class="foot">loading…</td></tr></tbody></table>
   </div>
@@ -121,7 +131,34 @@ async function loadAll(){
   document.getElementById("cheats").innerHTML = cf.length ? cf.slice(-12).reverse().map(f=>`<div class="ev"><span class="r">${esc(f.severity||"FLAG")}</span> ${esc(f.player_name||f.playerName)} — claimed ${esc(f.client_time??f.clientTime)}ms vs server ${esc(f.server_time??f.serverTime)}ms (Δ${esc(f.delta)}ms) · match ${esc(f.match_id||f.matchId)}</div>`).join("")
     : `<span class="foot">No cheat flags — clean.</span>`;
 }
-loadAll(); setInterval(loadAll, 15000);
+const ADMIN_KEY_LS='sense_admin_key';
+function getKey(){ return localStorage.getItem(ADMIN_KEY_LS)||''; }
+function renderKeyBar(){
+  const k=getKey();
+  document.getElementById('creditKeyBar').innerHTML = k
+    ? '<span class="foot">Admin key set \u2713 &nbsp; <a href="#" style="color:#fca5a5" onclick="localStorage.removeItem(ADMIN_KEY_LS);renderKeyBar();return false">clear</a></span>'
+    : '<input id="keyIn" placeholder="paste admin key to view balances" style="background:#232342;border:1px solid var(--line);color:#fff;border-radius:8px;padding:9px;width:300px;font-size:13px"/> <button onclick="var v=document.getElementById(\'keyIn\').value.trim();if(v){localStorage.setItem(ADMIN_KEY_LS,v);renderKeyBar();loadCredits();}">Save key</button>';
+}
+async function loadCredits(){
+  const k=getKey(); if(!k){ document.getElementById('creditTiles').innerHTML=''; return; }
+  try{
+    const d=await (await fetch(BASE+'/api/admin/credits?limit=40&key='+encodeURIComponent(k),{cache:'no-store'})).json();
+    if(d.error){ document.getElementById('creditTiles').innerHTML='<div class="tile"><div class="k">Credits</div><div class="v err">'+esc(d.error)+'</div></div>'; return; }
+    const t=d.totals||{}, iss=d.issued||{};
+    document.getElementById('creditTiles').innerHTML=[
+      tile('Total credits', Number(t.total_balance||0).toLocaleString()),
+      tile('Accounts', t.accounts||0),
+      tile('Issued (all-time)', Number(iss.issued||0).toLocaleString()),
+      tile('Ledger entries', iss.tx_count||0),
+    ].join('');
+    document.querySelector('#creditTop tbody').innerHTML=(d.top||[]).map(function(a){return '<tr><td>'+esc(a.handle||(a.account_id||'').slice(0,12))+'</td><td class="mono">'+Number(a.balance).toLocaleString()+'</td></tr>';}).join('')||'<tr><td class="foot">none</td></tr>';
+    document.getElementById('creditLedger').innerHTML=(d.recent||[]).map(function(r){
+      var pos=Number(r.amount)>=0;
+      return '<div class="ev"><span class="t">'+esc((r.created_at||'').slice(5,19).replace('T',' '))+'</span> '+esc((r.account_id||'').slice(0,10))+' <span class="'+(pos?'j':'r')+'">'+(pos?'+':'')+esc(r.amount)+'</span> '+esc(r.type)+' \u2192 '+esc(r.balance_after)+(r.match_id?(' ['+esc(r.match_id)+']'):'')+'</div>';
+    }).join('')||'<span class="foot">no movements yet</span>';
+  }catch(e){ document.getElementById('creditTiles').innerHTML='<div class="tile"><div class="k">Credits</div><div class="v err">load failed</div></div>'; }
+}
+renderKeyBar(); loadAll(); loadCredits(); setInterval(function(){loadAll();loadCredits();}, 15000);
 </script>
 </body>
 </html>
