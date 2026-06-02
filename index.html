@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sense — Mission Control</title>
+<style>
+  :root{ --bg:#0e0e1a; --card:#1a1a2e; --card2:#232342; --txt:#eef; --mut:#8a8ab5; --acc:#6C63FF; --grn:#22C55E; --amb:#F59E0B; --red:#EF4444; --line:rgba(255,255,255,.07); }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;padding:22px;max-width:1100px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 2px;font-weight:800;letter-spacing:.5px} .sub{color:var(--mut);font-size:13px;margin-bottom:18px}
+  .banner{border-radius:12px;padding:12px 16px;margin-bottom:18px;font-weight:700;font-size:15px}
+  .banner.ok{background:rgba(34,197,94,.14);color:#86efac;border:1px solid rgba(34,197,94,.3)}
+  .banner.bad{background:rgba(239,68,68,.16);color:#fca5a5;border:1px solid rgba(239,68,68,.4)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .tile .k{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.6px} .tile .v{font-size:28px;font-weight:800;margin-top:6px} .tile .v small{font-size:13px;color:var(--mut);font-weight:600}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+  .sec h2{font-size:14px;margin:0 0 12px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+  table{width:100%;border-collapse:collapse;font-size:13px} th{text-align:left;color:var(--mut);font-weight:600;padding:7px 8px;border-bottom:1px solid var(--line)} td{padding:7px 8px;border-bottom:1px solid var(--line)}
+  .win{color:var(--grn)} .loss{color:var(--red)} .draw{color:var(--amb)} .mono{font-variant-numeric:tabular-nums}
+  .ev{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#cfd} .ev .t{color:var(--mut)} .ev .j{color:#86efac} .ev .c{color:#fcd34d} .ev .r{color:#fca5a5}
+  .foot{color:var(--mut);font-size:12px;margin-top:10px} button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer}
+  .err{color:var(--red);font-size:12px}
+</style>
+</head>
+<body>
+  <h1>SENSE — Mission Control</h1>
+  <div class="sub">Live operations view · pulls the production server directly · <span id="clock"></span> <button onclick="loadAll()" style="margin-left:8px">Refresh</button></div>
+
+  <div id="banner" class="banner ok">Checking…</div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="sec">
+    <h2>Recent matches (server-measured)</h2>
+    <table id="matches"><thead><tr><th>Match</th><th>Player A</th><th>time</th><th>Player B</th><th>time</th><th>Winner</th></tr></thead><tbody><tr><td colspan="6" class="foot">loading…</td></tr></tbody></table>
+  </div>
+
+  <div class="sec">
+    <h2>Open games waiting for an opponent</h2>
+    <table id="open"><thead><tr><th>Match id</th><th>Player</th><th>Tier</th><th>Created</th></tr></thead><tbody><tr><td colspan="4" class="foot">loading…</td></tr></tbody></table>
+  </div>
+
+  <div class="sec">
+    <h2>Matchmaking event feed (latest)</h2>
+    <div id="events" class="foot">loading…</div>
+  </div>
+
+  <div class="sec">
+    <h2>Integrity — cheat flags</h2>
+    <div id="cheats" class="foot">loading…</div>
+  </div>
+
+<script>
+const BASE = "https://web-production-c6ec6.up.railway.app";
+const j = async (p) => { const r = await fetch(BASE+p, {cache:"no-store"}); if(!r.ok) throw new Error(p+" → "+r.status); return r.json(); };
+const esc = (s) => String(s==null?"":s).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const ms = (v) => v==null?"—":(v/1000).toFixed(2)+"s";
+
+function tile(k,v,sub,color){ return `<div class="tile"><div class="k">${k}</div><div class="v">${color?`<span class="dot" style="background:${color}"></span>`:""}${v}${sub?` <small>${sub}</small>`:""}</div></div>`; }
+
+async function loadAll(){
+  document.getElementById("clock").textContent = "updated "+new Date().toLocaleTimeString();
+  let problems = [];
+  // HEALTH + QUEUE
+  let health=null, queue=null, timing=null, cheats=null;
+  try { health = await j("/health"); } catch(e){ problems.push("server /health unreachable"); }
+  try { queue = await j("/api/debug/queue"); } catch(e){ problems.push("queue endpoint error"); }
+  try { timing = await j("/api/timing-log"); } catch(e){}
+  try { cheats = await j("/cheats"); } catch(e){}
+
+  // TILES
+  const q = (health&&health.queue)||{};
+  const openN = (queue&&queue.open&&queue.open.length)!=null ? queue.open.length : (q.open!=null?q.open:"—");
+  const tiles = [
+    tile("Server", health?"ONLINE":"DOWN", "", health?"var(--grn)":"var(--red)"),
+    tile("Live rooms", health?health.rooms:"—"),
+    tile("Open games", openN),
+    tile("Settled (all-time)", q.settled!=null?q.settled:"—"),
+    tile("Expired (all-time)", q.expired!=null?q.expired:"—"),
+    tile("Cheat flags", cheats&&cheats.total!=null?cheats.total:"—", "", (cheats&&cheats.total>0)?"var(--amb)":"var(--grn)"),
+  ];
+  document.getElementById("tiles").innerHTML = tiles.join("");
+
+  // BANNER
+  const b = document.getElementById("banner");
+  if(problems.length){ b.className="banner bad"; b.textContent="⚠ "+problems.join(" · "); }
+  else { b.className="banner ok"; b.textContent="✓ All systems normal — server online, no errors detected."; }
+
+  // MATCHES
+  const mt = document.querySelector("#matches tbody");
+  const games = (timing&&timing.games)||[];
+  if(games.length){
+    mt.innerHTML = games.slice(0,15).map(g=>{
+      const A=g.playerA||{}, B=g.playerB||{};
+      const wA=A.result==="win", wB=B.result==="win";
+      return `<tr><td class="mono">${esc(g.matchId||g.match_id||"")}</td>
+        <td class="${wA?'win':''}">${esc(A.name)}</td><td class="mono">${ms(A.displayTime)}</td>
+        <td class="${wB?'win':''}">${esc(B.name)}</td><td class="mono">${ms(B.displayTime)}</td>
+        <td>${wA?esc(A.name):wB?esc(B.name):'<span class="draw">draw/none</span>'}</td></tr>`;
+    }).join("");
+  } else mt.innerHTML = `<tr><td colspan="6" class="foot">No recent games in the buffer.</td></tr>`;
+
+  // OPEN GAMES
+  const ot = document.querySelector("#open tbody");
+  const open = (queue&&queue.open)||[];
+  ot.innerHTML = open.length ? open.map(g=>`<tr><td class="mono">${esc(g.match_id)}</td><td>${esc(g.player_a)}</td><td>${esc(g.tier)}</td><td class="foot">${esc((g.created_at||"").replace("T"," ").slice(0,19))}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="foot">None waiting.</td></tr>`;
+
+  // EVENTS
+  const ev = (queue&&queue.recentEvents)||[];
+  document.getElementById("events").innerHTML = ev.length ? ev.slice().reverse().map(e=>{
+    let cls="ev"; const m=esc(e.msg||"");
+    const col = /JOINED/.test(m)?'j':/CREATED|QUEUE/.test(m)?'c':/RATE|expire|EXPIRED/i.test(m)?'r':'';
+    return `<div class="ev"><span class="t">${esc((e.t||"").slice(11,19))}</span> <span class="${col}">${m}</span></div>`;
+  }).join("") : `<span class="foot">No recent events.</span>`;
+
+  // CHEATS
+  const cf = (cheats&&cheats.flags)||[];
+  document.getElementById("cheats").innerHTML = cf.length ? cf.slice(-12).reverse().map(f=>`<div class="ev"><span class="r">${esc(f.severity||"FLAG")}</span> ${esc(f.player_name||f.playerName)} — claimed ${esc(f.client_time??f.clientTime)}ms vs server ${esc(f.server_time??f.serverTime)}ms (Δ${esc(f.delta)}ms) · match ${esc(f.match_id||f.matchId)}</div>`).join("")
+    : `<span class="foot">No cheat flags — clean.</span>`;
+}
+loadAll(); setInterval(loadAll, 15000);
+</script>
+</body>
+</html>
