@@ -134,10 +134,14 @@ async function loadAll(){
 const ADMIN_KEY_LS='sense_admin_key';
 function getKey(){ return localStorage.getItem(ADMIN_KEY_LS)||''; }
 function renderKeyBar(){
-  const k=getKey();
-  document.getElementById('creditKeyBar').innerHTML = k
-    ? '<span class="foot">Admin key set \u2713 &nbsp; <a href="#" style="color:#fca5a5" onclick="localStorage.removeItem(ADMIN_KEY_LS);renderKeyBar();return false">clear</a></span>'
-    : '<input id="keyIn" placeholder="paste admin key to view balances" style="background:#232342;border:1px solid var(--line);color:#fff;border-radius:8px;padding:9px;width:300px;font-size:13px"/> <button onclick="var v=document.getElementById(\'keyIn\').value.trim();if(v){localStorage.setItem(ADMIN_KEY_LS,v);renderKeyBar();loadCredits();}">Save key</button>';
+  var bar=document.getElementById('creditKeyBar'); var k=getKey();
+  if(k){
+    bar.innerHTML='<span class="foot">Admin key set \u2713 &nbsp; <a href="#" id="clrKey" style="color:#fca5a5">clear</a></span>';
+    var c=document.getElementById('clrKey'); if(c) c.onclick=function(e){ e.preventDefault(); localStorage.removeItem(ADMIN_KEY_LS); renderKeyBar(); loadCredits(); };
+  } else {
+    bar.innerHTML='<input id="keyIn" placeholder="paste admin key to view balances" style="background:#232342;border:1px solid var(--line);color:#fff;border-radius:8px;padding:9px;width:300px;font-size:13px"/> <button id="saveKey">Save key</button>';
+    var b=document.getElementById('saveKey'); if(b) b.onclick=function(){ var v=document.getElementById('keyIn').value.trim(); if(v){ localStorage.setItem(ADMIN_KEY_LS,v); renderKeyBar(); loadCredits(); } };
+  }
 }
 async function loadCredits(){
   const k=getKey(); if(!k){ document.getElementById('creditTiles').innerHTML=''; return; }
